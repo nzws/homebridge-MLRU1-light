@@ -1,24 +1,19 @@
 {
-  "private": true,
-  "displayName": "Plugin Name",
-  "name": "homebridge-plugin-name",
+  "displayName": "MLRU1 Light with Nature Remo",
+  "name": "@nzws/mlru1-light",
   "version": "1.0.0",
-  "description": "A short description about what your plugin does.",
+  "description": "アイリスオーヤマ製「ML-RU1」リモコンを使用する照明を操作するプラグイン",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git://github.com/USERNAME/GITHUB_PROJECT_NAME.git"
-  },
-  "bugs": {
-    "url": "https://github.com/USERNAME/GITHUB_PROJECT_NAME/issues"
-  },
+  "repository": "https://github.com/nzws/homebridge-MLRU1-light.git",
+  "private": false,
   "engines": {
     "node": ">=10.17.0",
     "homebridge": ">=1.0.0"
   },
   "main": "dist/index.js",
   "scripts": {
-    "lint": "eslint src/**.ts --max-warnings=0",
+    "lint": "eslint src/**.ts --cache --max-warnings=0",
+    "format": "yarn lint --fix",
     "watch": "npm run build && npm link && nodemon",
     "build": "rimraf ./dist && tsc",
     "prepublishOnly": "npm run lint && npm run build"
@@ -26,13 +21,15 @@
   "keywords": [
     "homebridge-plugin"
   ],
-  "dependencies": {},
+  "dependencies": {
+    "nature-remo": "^1.2.3"
+  },
   "devDependencies": {
     "@types/node": "^14.14.6",
     "@typescript-eslint/eslint-plugin": "^4.6.1",
     "@typescript-eslint/parser": "^4.6.1",
     "eslint": "^7.13.0",
-    "homebridge": "^1.2.3",
+    "homebridge": "^1.1.6",
     "nodemon": "^2.0.6",
     "rimraf": "^3.0.2",
     "ts-node": "^9.0.0",
