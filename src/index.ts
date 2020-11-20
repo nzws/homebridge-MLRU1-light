@@ -1,10 +1,13 @@
 import * as NatureRemo from 'nature-remo';
-import { API, Logging, AccessoryConfig, Service } from 'homebridge';
+import { API, HAP, Logging, AccessoryConfig, Service } from 'homebridge';
+
+let hap: HAP;
 
 /**
  * This method registers the platform with Homebridge
  */
 export = (api: API) => {
+  hap = api.hap;
   api.registerAccessory('MLRU1Light', MLRU1Light);
 };
 
@@ -14,7 +17,7 @@ class MLRU1Light {
   private readonly api: API;
   private readonly Service;
   private readonly Characteristic;
-  private readonly natureClient: NatureRemo.Cloud;
+  private readonly natureClient?: NatureRemo.Cloud;
   private deviceData?: NatureRemo.IAppliance;
 
   private readonly informationService: Service;
@@ -38,19 +41,23 @@ class MLRU1Light {
     this.Service = this.api.hap.Service;
     this.Characteristic = this.api.hap.Characteristic;
 
-    this.service = new this.Service(this.Service.Lightbulb);
+    this.service = new hap.Service.Lightbulb(config.name);
 
-    this.natureClient = new NatureRemo.Cloud(config.accessToken);
-    this.natureClient
-      .getAppliances()
-      .then((devices) => devices.find((i) => i.id === this.config.lightId))
-      .then((device) => {
-        if (!device) {
-          throw new Error('not found device');
-        }
+    if (config.accessToken) {
+      this.natureClient = new NatureRemo.Cloud(config.accessToken);
+      this.natureClient
+        .getAppliances()
+        .then((devices) => devices.find((i) => i.id === this.config.lightId))
+        .then((device) => {
+          if (!device) {
+            throw new Error('not found device');
+          }
 
-        this.deviceData = device;
-      });
+          this.deviceData = device;
+        });
+    } else {
+      this.log.info('accessToken is not found, running in test mode.');
+    }
 
     // create handlers for required characteristics
     this.service
@@ -87,10 +94,12 @@ class MLRU1Light {
     this.log.info('handleOnSet:', value);
     const signalId = this._getSignalId('ico_on');
 
-    if (!value) {
+    if (this.natureClient) {
+      if (!value) {
+        await this.natureClient.sendSignal(signalId);
+      }
       await this.natureClient.sendSignal(signalId);
     }
-    await this.natureClient.sendSignal(signalId);
 
     callback(null);
   }
@@ -125,11 +134,13 @@ class MLRU1Light {
     const signalUp = this._getSignalId('ico_arrow_top');
     const signalDown = this._getSignalId('ico_arrow_bottom');
 
-    for (let i = 0; i < diff; i++) {
-      if (isBright) {
-        await this.natureClient.sendSignal(signalUp);
-      } else {
-        await this.natureClient.sendSignal(signalDown);
+    if (this.natureClient) {
+      for (let i = 0; i < diff; i++) {
+        if (isBright) {
+          await this.natureClient.sendSignal(signalUp);
+        } else {
+          await this.natureClient.sendSignal(signalDown);
+        }
       }
     }
 
@@ -139,6 +150,9 @@ class MLRU1Light {
   }
 
   private _getSignalId(image) {
+    if (!this.natureClient) {
+      return 'foo';
+    }
     if (!this.deviceData) {
       throw new Error('natureClient is not initialized');
     }
