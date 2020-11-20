@@ -14,6 +14,8 @@
 
 ```json
 {
+  "accessory": "MLRU1Light",
+  "name": "Light",
   "accessToken": "/* https://home.nature.global/ */",
   "maxBrightness": 5,
   "lightId": "/* uuid */"
