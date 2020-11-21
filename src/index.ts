@@ -95,15 +95,20 @@ class MLRU1Light {
       return callback(null);
     }
     this.log.info('handleOnSet:', value);
+    this.currentStatus = value;
     const signalId = this._getSignalId('ico_on');
 
-    if (this.natureClient) {
-      if (!value) {
+    try {
+      if (this.natureClient) {
+        if (!value) {
+          await this.natureClient.sendSignal(signalId);
+        }
         await this.natureClient.sendSignal(signalId);
       }
-      await this.natureClient.sendSignal(signalId);
+    } catch (e) {
+      this.currentStatus = !this.currentStatus;
+      throw e;
     }
-    this.currentStatus = value;
 
     callback(null);
   }
@@ -118,15 +123,16 @@ class MLRU1Light {
   }
 
   async handleBrightnessSet(value, callback) {
+    const prevCount = this.currentBrightness;
     const newCount = Math.min(
       this.maxBrightness,
       Math.max(Math.ceil(value / (100 / this.maxBrightness)), 1),
     );
-    const diff = Math.abs(newCount - this.currentBrightness);
-    const isBright = newCount > this.currentBrightness;
+    const diff = Math.abs(newCount - prevCount);
+    const isBright = newCount > prevCount;
     this.log.info('handleBrightnessSet', {
       value,
-      prevCount: this.currentBrightness,
+      prevCount,
       newCount,
       diff,
       isBright,
@@ -134,21 +140,25 @@ class MLRU1Light {
     if (diff < 0) {
       return callback(null);
     }
+    this.currentBrightness = newCount;
 
     const signalUp = this._getSignalId('ico_arrow_top');
     const signalDown = this._getSignalId('ico_arrow_bottom');
 
-    if (this.natureClient) {
-      for (let i = 0; i < diff; i++) {
-        if (isBright) {
-          await this.natureClient.sendSignal(signalUp);
-        } else {
-          await this.natureClient.sendSignal(signalDown);
+    try {
+      if (this.natureClient) {
+        for (let i = 0; i < diff; i++) {
+          if (isBright) {
+            await this.natureClient.sendSignal(signalUp);
+          } else {
+            await this.natureClient.sendSignal(signalDown);
+          }
         }
       }
+    } catch (e) {
+      this.currentBrightness = prevCount;
+      throw e;
     }
-
-    this.currentBrightness = newCount;
 
     callback(null);
   }
