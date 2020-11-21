@@ -103,6 +103,7 @@ class MLRU1Light {
       }
       await this.natureClient.sendSignal(signalId);
     }
+    this.currentStatus = value;
 
     callback(null);
   }
