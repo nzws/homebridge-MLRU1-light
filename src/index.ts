@@ -91,6 +91,9 @@ class MLRU1Light {
   }
 
   async handleOnSet(value, callback) {
+    if (value === this.currentStatus) {
+      return callback(null);
+    }
     this.log.info('handleOnSet:', value);
     const signalId = this._getSignalId('ico_on');
 
@@ -114,9 +117,9 @@ class MLRU1Light {
   }
 
   async handleBrightnessSet(value, callback) {
-    const newCount = Math.max(
+    const newCount = Math.min(
       this.maxBrightness,
-      Math.min(Math.ceil(value / (100 / this.maxBrightness)), 1),
+      Math.max(Math.ceil(value / (100 / this.maxBrightness)), 1),
     );
     const diff = Math.abs(newCount - this.currentBrightness);
     const isBright = newCount > this.currentBrightness;
