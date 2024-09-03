@@ -1,5 +1,5 @@
 import * as NatureRemo from 'nature-remo';
-import { API, HAP, Logging, AccessoryConfig, Service } from 'homebridge';
+import { API, HAP, Logging, AccessoryConfig, Service, Characteristic } from 'homebridge';
 
 let hap: HAP;
 
@@ -15,17 +15,22 @@ class MLRU1Light {
   private readonly log: Logging;
   private readonly config: AccessoryConfig;
   private readonly api: API;
-  private readonly Service;
-  private readonly Characteristic;
+  private readonly Service: typeof Service;
+  private readonly Characteristic: typeof hap.Characteristic;
   private readonly natureClient?: NatureRemo.Cloud;
   private deviceData?: NatureRemo.Appliance;
 
   private readonly informationService: Service;
   private readonly service: Service;
 
+  private readonly OnCharacteristic: Characteristic;
+  private readonly BrightnessCharacteristic: Characteristic;
+
   private currentStatus = true;
+  private updatingStatus = true;
   private readonly maxBrightness: number;
-  private currentBrightness: number;
+  private currentBrightness: number = 100;
+  private updatingBrightness: number = 100;
 
   /**
    * REQUIRED - This is the entry point to your plugin
@@ -36,7 +41,6 @@ class MLRU1Light {
     this.api = api;
 
     this.maxBrightness = config.maxBrightness || 5;
-    this.currentBrightness = config.maxBrightness || 5;
 
     this.Service = this.api.hap.Service;
     this.Characteristic = this.api.hap.Characteristic;
@@ -60,15 +64,17 @@ class MLRU1Light {
     }
 
     // create handlers for required characteristics
-    this.service
+    this.OnCharacteristic = this.service
       .getCharacteristic(this.Characteristic.On)
-      .on('get', this.handleOnGet.bind(this))
-      .on('set', this.handleOnSet.bind(this));
+      .onGet(this.handleOnGet.bind(this))
+      // @ts-expect-error: ?
+      .onSet(this.handleOnSet.bind(this));
 
-    this.service
+    this.BrightnessCharacteristic = this.service
       .getCharacteristic(this.Characteristic.Brightness)
-      .on('get', this.handleBrightnessGet.bind(this))
-      .on('set', this.handleBrightnessSet.bind(this));
+      .onGet(this.handleBrightnessGet.bind(this))
+      // @ts-expect-error: ?
+      .onSet(this.handleBrightnessSet.bind(this));
 
     this.informationService = new this.Service.AccessoryInformation()
       .setCharacteristic(this.Characteristic.Manufacturer, 'homebridge.io')
@@ -84,20 +90,22 @@ class MLRU1Light {
     return [this.informationService, this.service];
   }
 
-  handleOnGet(callback) {
+  handleOnGet() {
     this.log.debug('handleOnGet');
 
-    callback(undefined, this.currentStatus);
+    return this.currentStatus;
   }
 
-  async handleOnSet(value, callback) {
-    if (value === this.currentStatus) {
-      return callback(null);
+  async handleOnSet(value: boolean) {
+    if (value === this.updatingStatus) {
+      return;
     }
+
+    this.updatingStatus = value;
     this.log.debug('handleOnSet:', value);
-    this.currentStatus = value;
     const signalId = this._getSignalId('ico_on');
 
+    let isOutdated = false;
     try {
       if (this.natureClient) {
         if (!value) {
@@ -105,29 +113,33 @@ class MLRU1Light {
         }
         await this.natureClient.sendSignal(signalId);
       }
+
+      isOutdated = value !== this.updatingStatus;
+      if (!isOutdated) {
+        this.currentStatus = value;
+        this.OnCharacteristic.updateValue(this.currentStatus);
+      }
     } catch (e) {
-      this.currentStatus = !this.currentStatus;
+      if (!isOutdated) {
+        this.updatingStatus = !value;
+      }
       throw e;
     }
-
-    callback(null);
   }
 
-  handleBrightnessGet(callback) {
+  handleBrightnessGet() {
     this.log.debug('handleBrightnessGet');
-    const count = Math.round(
-      (100 / this.maxBrightness) * this.currentBrightness,
-    );
 
-    callback(undefined, count);
+    return this.currentBrightness;
   }
 
-  async handleBrightnessSet(value, callback) {
-    const prevCount = this.currentBrightness;
-    const newCount = Math.min(
-      this.maxBrightness,
-      Math.max(Math.ceil(value / (100 / this.maxBrightness)), 1),
-    );
+  async handleBrightnessSet(value: number) {
+    const prevPercent = this.updatingBrightness;
+    const newPercent = value;
+
+    const prevCount = this._percentToBrightness(prevPercent);
+    const newCount = this._percentToBrightness(newPercent);
+
     const diff = Math.abs(newCount - prevCount);
     const isBright = newCount > prevCount;
     this.log.debug('handleBrightnessSet', {
@@ -138,13 +150,14 @@ class MLRU1Light {
       isBright,
     });
     if (diff < 0) {
-      return callback(null);
+      return;
     }
-    this.currentBrightness = newCount;
+    this.updatingBrightness = newPercent;
 
     const signalUp = this._getSignalId('ico_arrow_top');
     const signalDown = this._getSignalId('ico_arrow_bottom');
 
+    let isOutdated = false;
     try {
       if (this.natureClient) {
         for (let i = 0; i < diff; i++) {
@@ -155,15 +168,26 @@ class MLRU1Light {
           }
         }
       }
+
+      isOutdated = newPercent !== this.updatingBrightness;
+      if (!isOutdated) {
+        this.currentBrightness = newPercent;
+        // todo: 複数回投げると前の値が反映される？
+        // this.BrightnessCharacteristic.updateValue(this.currentBrightness);
+      }
     } catch (e) {
-      this.currentBrightness = prevCount;
+      if (!isOutdated) {
+        this.updatingBrightness = prevPercent;
+      }
       throw e;
     }
-
-    callback(null);
   }
 
-  private _getSignalId(image) {
+  private _percentToBrightness(percent: number) {
+    return Math.max(1, Math.min(this.maxBrightness, Math.ceil((this.maxBrightness / 100) * (percent + 1))));
+  }
+
+  private _getSignalId(image: string) {
     if (!this.natureClient) {
       return 'foo';
     }
