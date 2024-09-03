@@ -85,7 +85,7 @@ class MLRU1Light {
   }
 
   handleOnGet(callback) {
-    this.log.info('handleOnGet');
+    this.log.debug('handleOnGet');
 
     callback(undefined, this.currentStatus);
   }
@@ -94,7 +94,7 @@ class MLRU1Light {
     if (value === this.currentStatus) {
       return callback(null);
     }
-    this.log.info('handleOnSet:', value);
+    this.log.debug('handleOnSet:', value);
     this.currentStatus = value;
     const signalId = this._getSignalId('ico_on');
 
@@ -114,7 +114,7 @@ class MLRU1Light {
   }
 
   handleBrightnessGet(callback) {
-    this.log.info('handleBrightnessGet');
+    this.log.debug('handleBrightnessGet');
     const count = Math.round(
       (100 / this.maxBrightness) * this.currentBrightness,
     );
@@ -130,7 +130,7 @@ class MLRU1Light {
     );
     const diff = Math.abs(newCount - prevCount);
     const isBright = newCount > prevCount;
-    this.log.info('handleBrightnessSet', {
+    this.log.debug('handleBrightnessSet', {
       value,
       prevCount,
       newCount,
