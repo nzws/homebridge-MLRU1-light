@@ -18,7 +18,7 @@ class MLRU1Light {
   private readonly Service;
   private readonly Characteristic;
   private readonly natureClient?: NatureRemo.Cloud;
-  private deviceData?: NatureRemo.IAppliance;
+  private deviceData?: NatureRemo.Appliance;
 
   private readonly informationService: Service;
   private readonly service: Service;
