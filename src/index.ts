@@ -159,6 +159,10 @@ class MLRU1Light {
     }
 
     return this.queue.add(async () => {
+      if (!this.currentStatus) {
+        this.log.warn('handleBrightnessSet: light is off');
+        return;
+      }
       const prevPercent = this.updatingBrightness;
       const newPercent = value;
 
