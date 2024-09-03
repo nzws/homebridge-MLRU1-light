@@ -1,5 +1,7 @@
 import * as NatureRemo from 'nature-remo';
 import { API, HAP, Logging, AccessoryConfig, Service, Characteristic } from 'homebridge';
+// @ts-expect-error: type
+import type PQueue from 'p-queue';
 
 let hap: HAP;
 
@@ -31,6 +33,8 @@ class MLRU1Light {
   private readonly maxBrightness: number;
   private currentBrightness: number = 100;
   private updatingBrightness: number = 100;
+
+  private queue: PQueue | undefined;
 
   /**
    * REQUIRED - This is the entry point to your plugin
@@ -80,6 +84,8 @@ class MLRU1Light {
       .setCharacteristic(this.Characteristic.Manufacturer, 'homebridge.io')
       .setCharacteristic(this.Characteristic.Model, 'homebridge')
       .setCharacteristic(this.Characteristic.SerialNumber, 'ho-me-br-id-ge');
+
+    void this.initializeQueue();
   }
 
   /**
@@ -90,6 +96,11 @@ class MLRU1Light {
     return [this.informationService, this.service];
   }
 
+  private async initializeQueue() {
+    const PQueue = await import('p-queue');
+    this.queue = new PQueue.default({ concurrency: 1 });
+  }
+
   handleOnGet() {
     this.log.debug('handleOnGet');
 
@@ -97,34 +108,42 @@ class MLRU1Light {
   }
 
   async handleOnSet(value: boolean) {
-    if (value === this.updatingStatus) {
+    if (!this.queue) {
+      this.log.error('queue is not initialized');
       return;
     }
 
-    this.updatingStatus = value;
-    this.log.debug('handleOnSet:', value);
-    const signalId = this._getSignalId('ico_on');
+    return this.queue.add(async () => {
+      if (value === this.updatingStatus) {
+        return;
+      }
 
-    let isOutdated = false;
-    try {
-      if (this.natureClient) {
-        if (!value) {
+      this.updatingStatus = value;
+      this.log.debug('handleOnSet:', value);
+      const signalId = this._getSignalId('ico_on');
+
+      let isOutdated = false;
+      try {
+        if (this.natureClient) {
+          if (!value) {
+            await this.natureClient.sendSignal(signalId);
+          }
           await this.natureClient.sendSignal(signalId);
         }
-        await this.natureClient.sendSignal(signalId);
-      }
 
-      isOutdated = value !== this.updatingStatus;
-      if (!isOutdated) {
-        this.currentStatus = value;
-        this.OnCharacteristic.updateValue(this.currentStatus);
+        isOutdated = value !== this.updatingStatus;
+        if (!isOutdated) {
+          this.currentStatus = value;
+          this.OnCharacteristic.updateValue(this.currentStatus);
+          return value;
+        }
+      } catch (e) {
+        if (!isOutdated) {
+          this.updatingStatus = !value;
+        }
+        throw e;
       }
-    } catch (e) {
-      if (!isOutdated) {
-        this.updatingStatus = !value;
-      }
-      throw e;
-    }
+    });
   }
 
   handleBrightnessGet() {
@@ -134,53 +153,61 @@ class MLRU1Light {
   }
 
   async handleBrightnessSet(value: number) {
-    const prevPercent = this.updatingBrightness;
-    const newPercent = value;
-
-    const prevCount = this._percentToBrightness(prevPercent);
-    const newCount = this._percentToBrightness(newPercent);
-
-    const diff = Math.abs(newCount - prevCount);
-    const isBright = newCount > prevCount;
-    this.log.debug('handleBrightnessSet', {
-      value,
-      prevCount,
-      newCount,
-      diff,
-      isBright,
-    });
-    if (diff < 0) {
+    if (!this.queue) {
+      this.log.error('queue is not initialized');
       return;
     }
-    this.updatingBrightness = newPercent;
 
-    const signalUp = this._getSignalId('ico_arrow_top');
-    const signalDown = this._getSignalId('ico_arrow_bottom');
+    return this.queue.add(async () => {
+      const prevPercent = this.updatingBrightness;
+      const newPercent = value;
 
-    let isOutdated = false;
-    try {
-      if (this.natureClient) {
-        for (let i = 0; i < diff; i++) {
-          if (isBright) {
-            await this.natureClient.sendSignal(signalUp);
-          } else {
-            await this.natureClient.sendSignal(signalDown);
+      const prevCount = this._percentToBrightness(prevPercent);
+      const newCount = this._percentToBrightness(newPercent);
+
+      const diff = Math.abs(newCount - prevCount);
+      const isBright = newCount > prevCount;
+      this.log.debug('handleBrightnessSet', {
+        value,
+        prevCount,
+        newCount,
+        diff,
+        isBright,
+      });
+      if (diff < 0) {
+        return;
+      }
+      this.updatingBrightness = newPercent;
+
+      const signalUp = this._getSignalId('ico_arrow_top');
+      const signalDown = this._getSignalId('ico_arrow_bottom');
+
+      let isOutdated = false;
+      try {
+        if (this.natureClient) {
+          for (let i = 0; i < diff; i++) {
+            if (isBright) {
+              await this.natureClient.sendSignal(signalUp);
+            } else {
+              await this.natureClient.sendSignal(signalDown);
+            }
           }
         }
-      }
 
-      isOutdated = newPercent !== this.updatingBrightness;
-      if (!isOutdated) {
-        this.currentBrightness = newPercent;
-        // todo: 複数回投げると前の値が反映される？
-        // this.BrightnessCharacteristic.updateValue(this.currentBrightness);
+        isOutdated = newPercent !== this.updatingBrightness;
+        if (!isOutdated) {
+          this.currentBrightness = newPercent;
+          // this.BrightnessCharacteristic.updateValue(this.currentBrightness);
+
+          return value;
+        }
+      } catch (e) {
+        if (!isOutdated) {
+          this.updatingBrightness = prevPercent;
+        }
+        throw e;
       }
-    } catch (e) {
-      if (!isOutdated) {
-        this.updatingBrightness = prevPercent;
-      }
-      throw e;
-    }
+    });
   }
 
   private _percentToBrightness(percent: number) {
