@@ -1,7 +1,5 @@
 import * as NatureRemo from 'nature-remo';
 import { API, HAP, Logging, AccessoryConfig, Service, Characteristic } from 'homebridge';
-// @ts-expect-error: type
-import type PQueue from 'p-queue';
 import { brightnessDown, brightnessUp, LocalSignal, toggleLight } from './signals';
 
 let hap: HAP;
@@ -30,15 +28,8 @@ class MLRU1Light {
   private readonly BrightnessCharacteristic: Characteristic;
 
   private currentStatus = true;
-  private updatingStatus = true;
   private readonly maxBrightness: number;
   private currentBrightness: number = 100;
-  private updatingBrightness: number = 100;
-
-  private queue: PQueue | undefined;
-
-  private statusTimeout: NodeJS.Timeout | undefined;
-  private brightnessTimeout: NodeJS.Timeout | undefined;
 
   private readonly remoIpAddr: string | undefined;
 
@@ -94,8 +85,6 @@ class MLRU1Light {
       .setCharacteristic(this.Characteristic.Manufacturer, 'irisohyama.co.jp')
       .setCharacteristic(this.Characteristic.Model, 'MLRU1')
       .setCharacteristic(this.Characteristic.SerialNumber, 'ho-me-br-id-ge');
-
-    void this.initializeQueue();
   }
 
   /**
@@ -106,11 +95,6 @@ class MLRU1Light {
     return [this.informationService, this.service];
   }
 
-  private async initializeQueue() {
-    const PQueue = await import('p-queue');
-    this.queue = new PQueue.default({ concurrency: 1 });
-  }
-
   handleOnGet() {
     this.log.debug('handleOnGet');
 
@@ -118,44 +102,24 @@ class MLRU1Light {
   }
 
   async handleOnSet(value: boolean) {
-    if (!this.queue) {
-      this.log.error('queue is not initialized');
+    if (value === this.currentStatus) {
       return;
     }
 
-    return this.queue.add(async () => {
-      if (value === this.updatingStatus) {
-        return;
-      }
+    this.log.debug('handleOnSet:', value);
+    this.currentStatus = value;
 
-      this.updatingStatus = value;
-      this.log.debug('handleOnSet:', value);
-
-      if (this.statusTimeout) {
-        clearTimeout(this.statusTimeout);
-      }
-
-      let isOutdated = false;
-      try {
-        if (!value) {
-          await this._toggleLight();
-        }
+    try {
+      if (!value) {
         await this._toggleLight();
-
-        isOutdated = value !== this.updatingStatus;
-        if (!isOutdated) {
-          this.statusTimeout = setTimeout(() => {
-            this.currentStatus = value;
-            this.OnCharacteristic.updateValue(this.currentStatus);
-          }, 1000);
-        }
-      } catch (e) {
-        if (!isOutdated) {
-          this.updatingStatus = !value;
-        }
-        throw e;
       }
-    });
+      await this._toggleLight();
+    } catch (e) {
+      if (this.currentStatus === value) {
+        this.currentStatus = !value;
+      }
+      throw e;
+    }
   }
 
   handleBrightnessGet() {
@@ -165,64 +129,44 @@ class MLRU1Light {
   }
 
   async handleBrightnessSet(value: number) {
-    if (!this.queue) {
-      this.log.error('queue is not initialized');
+    if (!this.currentStatus) {
+      this.log.warn('handleBrightnessSet: light is off');
+      return;
+    }
+    const prevPercent = this.currentBrightness;
+    const newPercent = value;
+
+    const prevCount = this._percentToBrightness(prevPercent);
+    const newCount = this._percentToBrightness(newPercent);
+
+    const diff = Math.abs(newCount - prevCount);
+    const isBright = newCount > prevCount;
+    this.log.debug('handleBrightnessSet', {
+      value,
+      prevCount,
+      newCount,
+      diff,
+      isBright,
+    });
+    if (diff < 0) {
       return;
     }
 
-    return this.queue.add(async () => {
-      if (!this.currentStatus) {
-        this.log.warn('handleBrightnessSet: light is off');
-        return;
-      }
-      const prevPercent = this.updatingBrightness;
-      const newPercent = value;
-
-      const prevCount = this._percentToBrightness(prevPercent);
-      const newCount = this._percentToBrightness(newPercent);
-
-      const diff = Math.abs(newCount - prevCount);
-      const isBright = newCount > prevCount;
-      this.log.debug('handleBrightnessSet', {
-        value,
-        prevCount,
-        newCount,
-        diff,
-        isBright,
-      });
-      if (diff < 0) {
-        return;
-      }
-      this.updatingBrightness = newPercent;
-
-      if (this.brightnessTimeout) {
-        clearTimeout(this.brightnessTimeout);
-      }
-
-      let isOutdated = false;
-      try {
-        for (let i = 0; i < diff; i++) {
-          if (isBright) {
-            await this._brightnessUp();
-          } else {
-            await this._brightnessDown();
-          }
+    this.currentBrightness = newPercent;
+    try {
+      for (let i = 0; i < diff; i++) {
+        if (isBright) {
+          await this._brightnessUp();
+        } else {
+          await this._brightnessDown();
         }
-
-        isOutdated = newPercent !== this.updatingBrightness;
-        if (!isOutdated) {
-          this.brightnessTimeout = setTimeout(() => {
-            this.currentBrightness = newPercent;
-            this.BrightnessCharacteristic.updateValue(newPercent);
-          }, 1000);
-        }
-      } catch (e) {
-        if (!isOutdated) {
-          this.updatingBrightness = prevPercent;
-        }
-        throw e;
       }
-    });
+    } catch (e) {
+      if (this.currentBrightness === newPercent) {
+        this.currentBrightness = prevPercent;
+      }
+      throw e;
+    }
   }
 
   private _percentToBrightness(percent: number) {

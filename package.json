@@ -1,7 +1,7 @@
 {
   "displayName": "MLRU1 Light with Nature Remo",
   "name": "@nzws/homebridge-mlru1-light",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "アイリスオーヤマ製「ML-RU1」リモコンを使用する照明を操作するプラグイン",
   "license": "Apache-2.0",
   "repository": "https://github.com/nzws/homebridge-MLRU1-light.git",
@@ -27,11 +27,10 @@
     "homebridge-plugin"
   ],
   "dependencies": {
-    "nature-remo": "^2.0.0",
-    "p-queue": "8.0.1"
+    "nature-remo": "^2.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.5.2",
+    "@types/node": "^22.5.3",
     "@typescript-eslint/eslint-plugin": "^8.4.0",
     "@typescript-eslint/parser": "^8.4.0",
     "eslint": "^8.57.0",
