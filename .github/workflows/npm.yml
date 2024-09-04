@@ -9,19 +9,19 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      node-version: 12.x
+      node-version: 20.x
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
 
       - name: Use Node.js ${{ env.node-version }} and setup .npmrc
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.node-version }}
           registry-url: "https://registry.npmjs.org"
 
       - name: Install deps
-        run: yarn --frozen-lockfile
+        run: yarn --immutable
 
       - name: Build files
         run: yarn build
