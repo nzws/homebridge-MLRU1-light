@@ -36,6 +36,9 @@ class MLRU1Light {
 
   private queue: PQueue | undefined;
 
+  private statusTimeout: NodeJS.Timeout | undefined;
+  private brightnessTimeout: NodeJS.Timeout | undefined;
+
   /**
    * REQUIRED - This is the entry point to your plugin
    */
@@ -122,6 +125,10 @@ class MLRU1Light {
       this.log.debug('handleOnSet:', value);
       const signalId = this._getSignalId('ico_on');
 
+      if (this.statusTimeout) {
+        clearTimeout(this.statusTimeout);
+      }
+
       let isOutdated = false;
       try {
         if (this.natureClient) {
@@ -133,9 +140,10 @@ class MLRU1Light {
 
         isOutdated = value !== this.updatingStatus;
         if (!isOutdated) {
-          this.currentStatus = value;
-          this.OnCharacteristic.updateValue(this.currentStatus);
-          return value;
+          this.statusTimeout = setTimeout(() => {
+            this.currentStatus = value;
+            this.OnCharacteristic.updateValue(this.currentStatus);
+          }, 1000);
         }
       } catch (e) {
         if (!isOutdated) {
@@ -183,6 +191,10 @@ class MLRU1Light {
       }
       this.updatingBrightness = newPercent;
 
+      if (this.brightnessTimeout) {
+        clearTimeout(this.brightnessTimeout);
+      }
+
       const signalUp = this._getSignalId('ico_arrow_top');
       const signalDown = this._getSignalId('ico_arrow_bottom');
 
@@ -200,10 +212,10 @@ class MLRU1Light {
 
         isOutdated = newPercent !== this.updatingBrightness;
         if (!isOutdated) {
-          this.currentBrightness = newPercent;
-          // this.BrightnessCharacteristic.updateValue(this.currentBrightness);
-
-          return value;
+          this.brightnessTimeout = setTimeout(() => {
+            this.currentBrightness = newPercent;
+            this.BrightnessCharacteristic.updateValue(newPercent);
+          }, 1000);
         }
       } catch (e) {
         if (!isOutdated) {
