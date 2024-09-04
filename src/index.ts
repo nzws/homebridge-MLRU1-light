@@ -2,6 +2,7 @@ import * as NatureRemo from 'nature-remo';
 import { API, HAP, Logging, AccessoryConfig, Service, Characteristic } from 'homebridge';
 // @ts-expect-error: type
 import type PQueue from 'p-queue';
+import { brightnessDown, brightnessUp, LocalSignal, toggleLight } from './signals';
 
 let hap: HAP;
 
@@ -39,6 +40,8 @@ class MLRU1Light {
   private statusTimeout: NodeJS.Timeout | undefined;
   private brightnessTimeout: NodeJS.Timeout | undefined;
 
+  private readonly remoIpAddr: string | undefined;
+
   /**
    * REQUIRED - This is the entry point to your plugin
    */
@@ -54,7 +57,11 @@ class MLRU1Light {
 
     this.service = new hap.Service.Lightbulb(config.name);
 
-    if (config.accessToken) {
+    if (config.remoIpAddr) {
+      this.log.info('Using Nature Remo\'s local API');
+      this.remoIpAddr = config.remoIpAddr;
+    } else if (config.accessToken) {
+      this.log.info('Using Nature Remo\'s cloud API');
       this.natureClient = new NatureRemo.Cloud(config.accessToken);
       this.natureClient
         .getAppliances()
@@ -67,7 +74,7 @@ class MLRU1Light {
           this.deviceData = device;
         });
     } else {
-      this.log.info('accessToken is not found, running in test mode.');
+      this.log.warn('No API specified');
     }
 
     // create handlers for required characteristics
@@ -84,8 +91,8 @@ class MLRU1Light {
       .onSet(this.handleBrightnessSet.bind(this));
 
     this.informationService = new this.Service.AccessoryInformation()
-      .setCharacteristic(this.Characteristic.Manufacturer, 'homebridge.io')
-      .setCharacteristic(this.Characteristic.Model, 'homebridge')
+      .setCharacteristic(this.Characteristic.Manufacturer, 'irisohyama.co.jp')
+      .setCharacteristic(this.Characteristic.Model, 'MLRU1')
       .setCharacteristic(this.Characteristic.SerialNumber, 'ho-me-br-id-ge');
 
     void this.initializeQueue();
@@ -123,7 +130,6 @@ class MLRU1Light {
 
       this.updatingStatus = value;
       this.log.debug('handleOnSet:', value);
-      const signalId = this._getSignalId('ico_on');
 
       if (this.statusTimeout) {
         clearTimeout(this.statusTimeout);
@@ -131,12 +137,10 @@ class MLRU1Light {
 
       let isOutdated = false;
       try {
-        if (this.natureClient) {
-          if (!value) {
-            await this.natureClient.sendSignal(signalId);
-          }
-          await this.natureClient.sendSignal(signalId);
+        if (!value) {
+          await this._toggleLight();
         }
+        await this._toggleLight();
 
         isOutdated = value !== this.updatingStatus;
         if (!isOutdated) {
@@ -195,18 +199,13 @@ class MLRU1Light {
         clearTimeout(this.brightnessTimeout);
       }
 
-      const signalUp = this._getSignalId('ico_arrow_top');
-      const signalDown = this._getSignalId('ico_arrow_bottom');
-
       let isOutdated = false;
       try {
-        if (this.natureClient) {
-          for (let i = 0; i < diff; i++) {
-            if (isBright) {
-              await this.natureClient.sendSignal(signalUp);
-            } else {
-              await this.natureClient.sendSignal(signalDown);
-            }
+        for (let i = 0; i < diff; i++) {
+          if (isBright) {
+            await this._brightnessUp();
+          } else {
+            await this._brightnessDown();
           }
         }
 
@@ -231,17 +230,86 @@ class MLRU1Light {
   }
 
   private _getSignalId(image: string) {
-    if (!this.natureClient) {
-      return 'foo';
+    if (!this.natureClient || !this.deviceData) {
+      this.log.error('natureClient is not initialized');
+      return;
     }
-    if (!this.deviceData) {
-      throw new Error('natureClient is not initialized');
-    }
+
     const signal = this.deviceData.signals.find((i) => i.image === image);
     if (!signal) {
-      throw new Error('not found button');
+      this.log.error('signal not found', image);
+      return;
     }
 
     return signal.id;
+  }
+
+  private async _toggleLight() {
+    this.log.debug('toggleLight');
+
+    if (this.natureClient) {
+      const signalId = this._getSignalId('ico_on');
+      if (signalId) {
+        await this.natureClient.sendSignal(signalId);
+      }
+    } else if (this.remoIpAddr) {
+      await this._sendSignalToRemoLocal(toggleLight);
+    } else {
+      this.log.info('toggleLight');
+    }
+  }
+
+  private async _brightnessUp() {
+    this.log.debug('brightnessUp');
+
+    if (this.natureClient) {
+      const signalId = this._getSignalId('ico_arrow_top');
+      if (signalId) {
+        await this.natureClient.sendSignal(signalId);
+      }
+    } else if (this.remoIpAddr) {
+      await this._sendSignalToRemoLocal(brightnessUp);
+    } else {
+      this.log.info('brightnessUp');
+    }
+  }
+
+  private async _brightnessDown() {
+    this.log.debug('brightnessDown');
+
+    if (this.natureClient) {
+      const signalId = this._getSignalId('ico_arrow_bottom');
+      if (signalId) {
+        await this.natureClient.sendSignal(signalId);
+      }
+    } else if (this.remoIpAddr) {
+      await this._sendSignalToRemoLocal(brightnessDown);
+    } else {
+      this.log.info('brightnessDown');
+    }
+  }
+
+  private async _sendSignalToRemoLocal(signal: LocalSignal) {
+    try {
+      if (!this.remoIpAddr) {
+        this.log.error('remoIpAddr is not initialized');
+        return;
+      }
+      const response = await fetch(`http://${this.remoIpAddr}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'homebridge-mlru1-light',
+        },
+        body: JSON.stringify(signal),
+      });
+      this.log.debug('sendSignalToRemoLocal', response.url, response.statusText, response.status);
+
+      if (!response.ok) {
+        this.log.error('failed to send signal', response.url, response.statusText, response.status);
+      }
+    } catch (e) {
+      this.log.error((e as Error).message, e);
+    }
   }
 }
