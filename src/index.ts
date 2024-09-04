@@ -251,7 +251,10 @@ class MLRU1Light {
 
       if (!response.ok) {
         this.log.error('failed to send signal', response.url, response.statusText, response.status);
+        return;
       }
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
     } catch (e) {
       this.log.error((e as Error).message, e);
     }
